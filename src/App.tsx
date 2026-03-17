@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { LogIn, ArrowUp, User, LogOut, ArrowLeft, Send, Briefcase, Phone, Users, Calendar, X, FastForward } from 'lucide-react';
+import { LogIn, ArrowUp, User, LogOut, ArrowLeft, Send, Briefcase, Phone, Users, Calendar, X, FastForward, ArrowRight } from 'lucide-react';
 import { GoogleGenAI, Type } from '@google/genai';
 
 interface DepartmentMessage {
@@ -572,6 +572,8 @@ export default function App() {
   };
 
   const handleMeetingRoom = () => {
+    setIsOfficePlaying(false);
+    setIsMarcosPlaying(false);
     setStep('meeting_room');
   };
 
@@ -640,7 +642,7 @@ export default function App() {
         className="absolute inset-0 w-full h-full object-cover z-[44] pointer-events-none"
         referrerPolicy="no-referrer"
         style={{ 
-          opacity: isOfficePlaying || step === 'office_inside' || step === 'marcos_entering' || step === 'marcos_inside' || step === 'meeting_room' ? 1 : 0, 
+          opacity: isOfficePlaying || step === 'office_inside' || step === 'marcos_entering' || step === 'marcos_inside' ? 1 : 0, 
           transition: 'opacity 0.5s ease-in-out' 
         }}
       />
@@ -835,12 +837,22 @@ export default function App() {
               className="absolute bottom-0 left-0 w-full p-6 bg-gradient-to-t from-black/90 via-black/50 to-transparent z-30 pointer-events-auto"
             >
               <div className="max-w-2xl mx-auto flex flex-col gap-4">
-                <button 
-                  onClick={handleBackToOffice}
-                  className="self-start flex items-center gap-2 text-white/60 hover:text-white transition-colors text-sm uppercase tracking-wider mb-2"
-                >
-                  <ArrowLeft size={16} /> Volver a la Oficina
-                </button>
+                <div className="flex justify-between items-center mb-2">
+                  <button 
+                    onClick={handleBackToOffice}
+                    className="flex items-center gap-2 text-white/60 hover:text-white transition-colors text-sm uppercase tracking-wider"
+                  >
+                    <ArrowLeft size={16} /> Volver a la Oficina
+                  </button>
+                  {departmentInMeeting !== 'none' && (
+                    <button 
+                      onClick={handleMeetingRoom}
+                      className="flex items-center gap-2 text-emerald-400 hover:text-emerald-300 transition-colors text-sm uppercase tracking-wider"
+                    >
+                      Ir a la junta de reunión <ArrowRight size={16} />
+                    </button>
+                  )}
+                </div>
                 
                 <form onSubmit={handleSendMarcosMessage} className="relative flex items-center">
                   <input
@@ -903,15 +915,20 @@ export default function App() {
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.3 }}
-            className="absolute inset-0 flex items-center justify-center bg-black/40 backdrop-blur-sm z-30"
+            className="absolute inset-0 flex flex-col md:flex-row items-center justify-between p-8 md:p-16 z-30 pointer-events-none"
           >
-            <div className="flex flex-col md:flex-row gap-6 p-8">
+            {/* Lado Izquierdo: Ascensor */}
+            <div className="pointer-events-auto">
               <OptionCard 
                 icon={<ArrowUp size={32} />} 
                 title="Ascensor" 
                 delay={0.2} 
                 onClick={handleElevator} 
               />
+            </div>
+
+            {/* Lado Derecho: Recepcionista y Salida */}
+            <div className="flex flex-col gap-6 pointer-events-auto items-end">
               <OptionCard 
                 icon={<User size={32} />} 
                 title="Recepcionista" 
@@ -1217,10 +1234,10 @@ export default function App() {
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.8 }}
-            className="absolute inset-0 flex flex-col md:flex-row items-end md:items-center justify-end md:justify-between p-6 md:p-16 z-30 pointer-events-none gap-4 pb-12"
+            className="absolute inset-0 flex flex-col items-end justify-start p-6 md:p-12 z-30 pointer-events-none gap-4"
           >
-            {/* Opciones Derecha */}
-            <div className="flex flex-col gap-4 pointer-events-auto items-end md:items-start ml-auto">
+            {/* Opciones Superior Derecha */}
+            <div className="flex flex-col gap-4 pointer-events-auto items-end">
               <SmallOptionCard 
                 icon={<ArrowLeft size={24} />} 
                 title="Volver a la Oficina" 
