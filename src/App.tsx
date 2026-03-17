@@ -1,7 +1,7 @@
-import React, { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, ReactNode, FormEvent } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { LogIn, ArrowUp, User, LogOut, ArrowLeft, Send, Briefcase, Phone, Users, Calendar, X, FastForward, ArrowRight } from 'lucide-react';
-import { GoogleGenAI, Type } from '@google/genai';
+import Groq from 'groq-sdk';
 
 interface DepartmentMessage {
   id: string;
@@ -101,8 +101,11 @@ const TalkingIcon = () => (
   </div>
 );
 
-// Inicializar Gemini API
-const getAI = () => new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+// Inicializar Groq API
+const getGroq = () => new Groq({ 
+  apiKey: import.meta.env.VITE_GROQ_API_KEY || '', 
+  dangerouslyAllowBrowser: true 
+});
 
 export default function App() {
   const [step, setStep] = useState<'entrance' | 'entering' | 'lobby' | 'elevator_entering' | 'elevator_inside' | 'elevator_card_reader' | 'receptionist' | 'office_entering' | 'office_inside' | 'marcos_entering' | 'marcos_inside' | 'meeting_room'>('entrance');
@@ -119,20 +122,23 @@ export default function App() {
   const [receptionistMessage, setReceptionistMessage] = useState('¿Cómo puedo ayudarte?');
   const [inputText, setInputText] = useState('');
   const [isTyping, setIsTyping] = useState(false);
-  const chatRef = useRef<any>(null);
+  const chatRef = useRef<Groq | null>(null);
+  const chatHistoryRef = useRef<{ role: 'system' | 'user' | 'assistant'; content: string }[]>([]);
 
   // Estado de Marcos
   const [marcosMessage, setMarcosMessage] = useState('');
   const [marcosInputText, setMarcosInputText] = useState('');
   const [isMarcosTyping, setIsMarcosTyping] = useState(false);
-  const marcosChatRef = useRef<any>(null);
+  const marcosChatRef = useRef<Groq | null>(null);
+  const marcosHistoryRef = useRef<{ role: 'system' | 'user' | 'assistant'; content: string }[]>([]);
 
   // Estado del Chat de Departamento
   const [departmentMessages, setDepartmentMessages] = useState<DepartmentMessage[]>([]);
   const [departmentInputText, setDepartmentInputText] = useState('');
   const [isDepartmentTyping, setIsDepartmentTyping] = useState(false);
   const [activeSpeaker, setActiveSpeaker] = useState<string | null>(null);
-  const departmentChatRef = useRef<any>(null);
+  const departmentChatRef = useRef<{ chat: Groq; department: string } | null>(null);
+  const departmentHistoryRef = useRef<{ role: 'system' | 'user' | 'assistant'; content: string }[]>([]);
   const chatScrollRef = useRef<HTMLDivElement>(null);
   
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -164,13 +170,10 @@ export default function App() {
   useEffect(() => {
     try {
       if (step === 'receptionist' && !chatRef.current) {
-        chatRef.current = getAI().chats.create({
-          model: "gemini-3-flash-preview",
-          config: {
-            systemInstruction: "Eres la recepcionista profesional y amable de esta empresa. Responde de manera concisa, educada y servicial. NO menciones comida ni almuerzos (lunch). Si el usuario te pide una tarjeta de acceso para la oficina de Kevin o para el ascensor, dásela amablemente diciendo algo como 'Aquí tienes la tarjeta de acceso' o 'Toma la tarjeta'.",
-            temperature: 0.7,
-          },
-        });
+        chatRef.current = getGroq();
+        chatHistoryRef.current = [
+          { role: 'system', content: "Eres la recepcionista profesional y amable de esta empresa. Responde de manera concisa, educada y servicial. NO menciones comida ni almuerzos (lunch). Si el usuario te pide una tarjeta de acceso para la oficina de Kevin o para el ascensor, dásela amablemente diciendo algo como 'Aquí tienes la tarjeta de acceso' o 'Toma la tarjeta'." }
+        ];
       }
     } catch (e) {
       console.error("Error initializing receptionist chat:", e);
@@ -178,13 +181,10 @@ export default function App() {
 
     try {
       if (step === 'marcos_inside' && !marcosChatRef.current) {
-        marcosChatRef.current = getAI().chats.create({
-          model: "gemini-3-flash-preview",
-          config: {
-            systemInstruction: "Eres Marcos, el asistente personal y profesional de Kevin. Eres extremadamente capaz, natural y humano en tu trato. Respondes de forma conversacional, empática y muy eficiente. NO menciones comida ni almuerzos (lunch) a menos que se te pregunte. Mantén tus respuestas concisas (máximo 2-3 oraciones), pero siempre con un tono cálido y profesional.",
-            temperature: 0.7,
-          },
-        });
+        marcosChatRef.current = getGroq();
+        marcosHistoryRef.current = [
+          { role: 'system', content: "Eres Marcos, el asistente personal y profesional de Kevin. Eres extremadamente capaz, natural y humano en tu trato. Respondes de forma conversacional, empática y muy eficiente. NO menciones comida ni almuerzos (lunch) a menos que se te pregunte. Mantén tus respuestas concisas (máximo 2-3 oraciones), pero siempre con un tono cálido y profesional." }
+        ];
       }
     } catch (e) {
       console.error("Error initializing Marcos chat:", e);
@@ -195,27 +195,12 @@ export default function App() {
         if (!departmentChatRef.current || departmentChatRef.current.department !== departmentInMeeting) {
           const config = departmentConfigs[departmentInMeeting];
           departmentChatRef.current = {
-            chat: getAI().chats.create({
-              model: "gemini-3-flash-preview",
-              config: {
-                systemInstruction: config.instruction,
-                temperature: 0.7,
-                responseMimeType: "application/json",
-                responseSchema: {
-                  type: Type.ARRAY,
-                  items: {
-                    type: Type.OBJECT,
-                    properties: {
-                      character: { type: Type.STRING },
-                      message: { type: Type.STRING }
-                    },
-                    required: ["character", "message"]
-                  }
-                }
-              },
-            }),
+            chat: getGroq(),
             department: departmentInMeeting
           };
+          departmentHistoryRef.current = [
+            { role: 'system', content: config.instruction + " IMPORTANTE: Responde SIEMPRE en formato JSON como un array de objetos con las propiedades 'character' (nombre del personaje) y 'message' (su mensaje). Ejemplo: [{\"character\": \"Pablo\", \"message\": \"Hola\"}]" }
+          ];
           setDepartmentMessages([]);
         }
       }
@@ -224,7 +209,7 @@ export default function App() {
     }
   }, [step, departmentInMeeting]);
 
-  const handleSendMessage = async (e?: React.FormEvent) => {
+  const handleSendMessage = async (e?: FormEvent) => {
     e?.preventDefault();
     if (!inputText.trim() || isTyping) return;
 
@@ -235,17 +220,22 @@ export default function App() {
 
     try {
       if (!chatRef.current) {
-        chatRef.current = getAI().chats.create({
-          model: "gemini-3-flash-preview",
-          config: {
-            systemInstruction: "Eres la recepcionista profesional y amable de esta empresa. Responde de manera concisa, educada y servicial a las preguntas de los visitantes. Mantén tus respuestas cortas (máximo 2-3 oraciones) para que quepan bien en una burbuja de diálogo.",
-            temperature: 0.7,
-          },
-        });
+        chatRef.current = getGroq();
+        chatHistoryRef.current = [
+          { role: 'system', content: "Eres la recepcionista profesional y amable de esta empresa. Responde de manera concisa, educada y servicial a las preguntas de los visitantes. Mantén tus respuestas cortas (máximo 2-3 oraciones) para que quepan bien en una burbuja de diálogo." }
+        ];
       }
       
-      const response = await chatRef.current.sendMessage({ message: userMessage });
-      const responseText = response.text || 'Lo siento, no pude entender eso.';
+      chatHistoryRef.current.push({ role: 'user', content: userMessage });
+      
+      const completion = await chatRef.current.chat.completions.create({
+        messages: chatHistoryRef.current,
+        model: "llama-3.3-70b-versatile",
+        temperature: 0.7,
+      });
+
+      const responseText = completion.choices[0]?.message?.content || 'Lo siento, no pude entender eso.';
+      chatHistoryRef.current.push({ role: 'assistant', content: responseText });
       setReceptionistMessage(responseText);
 
       // Detectar si dio la tarjeta
@@ -261,7 +251,7 @@ export default function App() {
     }
   };
 
-  const handleSendDepartmentMessage = async (e?: React.FormEvent) => {
+  const handleSendDepartmentMessage = async (e?: FormEvent) => {
     e?.preventDefault();
     if (!departmentInputText.trim() || isDepartmentTyping) return;
 
@@ -278,18 +268,30 @@ export default function App() {
     setIsDepartmentTyping(true);
 
     try {
-      const chat = departmentChatRef.current?.chat || departmentChatRef.current;
+      const chat = departmentChatRef.current?.chat;
       if (!chat) throw new Error("Chat not initialized");
       
-      const response = await chat.sendMessage({ message: userText });
+      departmentHistoryRef.current.push({ role: 'user', content: userText });
+      
+      const completion = await chat.chat.completions.create({
+        messages: departmentHistoryRef.current,
+        model: "llama-3.3-70b-versatile",
+        temperature: 0.7,
+        response_format: { type: "json_object" }
+      });
+
+      const responseText = completion.choices[0]?.message?.content || '[]';
+      departmentHistoryRef.current.push({ role: 'assistant', content: responseText });
       
       let responses: { character: string, message: string }[] = [];
       try {
-        responses = JSON.parse(response.text);
+        const parsed = JSON.parse(responseText);
+        // Groq might return the array inside an object if we use json_object mode
+        responses = Array.isArray(parsed) ? parsed : (parsed.responses || Object.values(parsed)[0] || []);
+        if (!Array.isArray(responses)) responses = [parsed];
       } catch (e) {
         console.error("Error parsing JSON response", e);
-        // Fallback if not JSON
-        responses = [{ character: 'Sistema', message: response.text }];
+        responses = [{ character: 'Sistema', message: responseText }];
       }
       
       for (const resp of responses) {
@@ -324,7 +326,7 @@ export default function App() {
     }
   }, [departmentMessages, isDepartmentTyping]);
 
-  const handleSendMarcosMessage = async (e?: React.FormEvent) => {
+  const handleSendMarcosMessage = async (e?: FormEvent) => {
     e?.preventDefault();
     if (!marcosInputText.trim() || isMarcosTyping) return;
 
@@ -349,17 +351,23 @@ export default function App() {
 
     try {
       if (!marcosChatRef.current) {
-        marcosChatRef.current = getAI().chats.create({
-          model: "gemini-3-flash-preview",
-          config: {
-            systemInstruction: "Eres Marcos, el asistente personal y profesional de Kevin. Eres extremadamente capaz, natural y humano en tu trato. Respondes de forma conversacional, empática y muy eficiente, como un asistente de la más alta categoría. Mantén tus respuestas concisas (máximo 2-3 oraciones) para que quepan bien en una burbuja de diálogo, pero siempre con un tono cálido y profesional.",
-            temperature: 0.7,
-          },
-        });
+        marcosChatRef.current = getGroq();
+        marcosHistoryRef.current = [
+          { role: 'system', content: "Eres Marcos, el asistente personal y profesional de Kevin. Eres extremadamente capaz, natural y humano en tu trato. Respondes de forma conversacional, empática y muy eficiente, como un asistente de la más alta categoría. Mantén tus respuestas concisas (máximo 2-3 oraciones) para que quepan bien en una burbuja de diálogo, pero siempre con un tono cálido y profesional." }
+        ];
       }
       
-      const response = await marcosChatRef.current.sendMessage({ message: messageToSend });
-      setMarcosMessage(response.text || 'Lo siento, no pude entender eso.');
+      marcosHistoryRef.current.push({ role: 'user', content: messageToSend });
+      
+      const completion = await marcosChatRef.current.chat.completions.create({
+        messages: marcosHistoryRef.current,
+        model: "llama-3.3-70b-versatile",
+        temperature: 0.7,
+      });
+
+      const responseText = completion.choices[0]?.message?.content || 'Lo siento, no pude entender eso.';
+      marcosHistoryRef.current.push({ role: 'assistant', content: responseText });
+      setMarcosMessage(responseText);
     } catch (error: any) {
       console.error("Error al enviar mensaje a Marcos:", error);
       setMarcosMessage(`Lo siento, hubo un error: ${error.message || 'Problema de conexión'}`);
@@ -1275,7 +1283,7 @@ export default function App() {
   );
 }
 
-function OptionCard({ icon, title, delay, onClick }: { icon: React.ReactNode, title: string, delay: number, onClick: () => void }) {
+function OptionCard({ icon, title, delay, onClick }: { icon: ReactNode; title: string; delay: number; onClick: () => void }) {
   return (
     <motion.button
       initial={{ opacity: 0, y: 20 }}
@@ -1294,7 +1302,7 @@ function OptionCard({ icon, title, delay, onClick }: { icon: React.ReactNode, ti
   );
 }
 
-function SmallOptionCard({ icon, title, delay, onClick }: { icon: React.ReactNode, title: string, delay: number, onClick: () => void }) {
+function SmallOptionCard({ icon, title, delay, onClick }: { icon: ReactNode; title: string; delay: number; onClick: () => void }) {
   return (
     <motion.button
       initial={{ opacity: 0, y: 20 }}
