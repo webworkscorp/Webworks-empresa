@@ -102,10 +102,19 @@ const TalkingIcon = () => (
 );
 
 // Inicializar Groq API
-const getGroq = () => new Groq({ 
-  apiKey: import.meta.env.VITE_GROQ_API_KEY || '', 
-  dangerouslyAllowBrowser: true 
-});
+const getGroq = () => {
+  const key = import.meta.env.VITE_GROQ_API_KEY || process.env.GROQ_API_KEY || '';
+  const sanitizedKey = key === 'undefined' ? '' : key;
+  
+  if (!sanitizedKey) {
+    console.warn('Groq API Key is missing. Please set GROQ_API_KEY in the Secrets panel.');
+  }
+  
+  return new Groq({ 
+    apiKey: sanitizedKey, 
+    dangerouslyAllowBrowser: true 
+  });
+};
 
 export default function App() {
   const [step, setStep] = useState<'entrance' | 'entering' | 'lobby' | 'elevator_entering' | 'elevator_inside' | 'elevator_card_reader' | 'receptionist' | 'office_entering' | 'office_inside' | 'marcos_entering' | 'marcos_inside' | 'meeting_room'>('entrance');
